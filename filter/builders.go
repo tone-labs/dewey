@@ -33,56 +33,25 @@ type StringPredicates[P any] struct {
 // StringFilterBuilder implements FieldFilterBuilder for string fields.
 // It handles type conversions and delegates to ORM-specific predicate functions.
 type StringFilterBuilder[P any] struct {
-	predicates StringPredicates[P]
-	nullable   bool
+	predicates  StringPredicates[P]
+	combinators Combinators[P]
+	nullable    bool
 }
 
-// NewStringFilter creates a filter builder for a non-nullable string field.
-// The alwaysTrue and alwaysFalse predicates are derived automatically:
-//   - alwaysTrue: Ne("") - a non-empty required field is never equal to empty string
-//   - alwaysFalse: Eq("") - a non-empty required field is always not equal to empty string
+// newStringFilterWithCombinators creates a filter builder for a string field with combinators injected.
+// This is called by BuildFilterMap after receiving the Combinators.
 //
-// Example for Ent:
-//
-//	builder := NewStringFilter(
-//	    StringPredicates[predicate.User]{
-//	        Eq:         user.EmailEQ,
-//	        Ne:         user.EmailNEQ,
-//	        Gt:         user.EmailGT,
-//	        Gte:        user.EmailGTE,
-//	        Lt:         user.EmailLT,
-//	        Lte:        user.EmailLTE,
-//	        In:         user.EmailIn,
-//	        Nin:        user.EmailNotIn,
-//	        Contains:   user.EmailContainsFold,
-//	        StartsWith: user.EmailHasPrefix,
-//	        EndsWith:   user.EmailHasSuffix,
-//	    },
-//	)
-func NewStringFilter[P any](predicates StringPredicates[P]) FieldFilterBuilder[P] {
+// The combinators are used to construct mathematically accurate "always true" and
+// "always false" predicates for IsNull/IsNotNull on non-nullable fields.
+func newStringFilterWithCombinators[P any](
+	predicates StringPredicates[P],
+	combinators Combinators[P],
+	nullable bool,
+) FieldFilterBuilder[P] {
 	return &StringFilterBuilder[P]{
-		predicates: predicates,
-		nullable:   false,
-	}
-}
-
-// NewNullableStringFilter creates a filter builder for a nullable string field.
-//
-// Example for Ent:
-//
-//	builder := NewNullableStringFilter(
-//	    StringPredicates[predicate.User]{
-//	        Eq:         user.FirstNameEQ,
-//	        Ne:         user.FirstNameNEQ,
-//	        // ... other predicates
-//	        IsNil:      user.FirstNameIsNil,
-//	        IsNotNil:   user.FirstNameNotNil,
-//	    },
-//	)
-func NewNullableStringFilter[P any](predicates StringPredicates[P]) FieldFilterBuilder[P] {
-	return &StringFilterBuilder[P]{
-		predicates: predicates,
-		nullable:   true,
+		predicates:  predicates,
+		combinators: combinators,
+		nullable:    nullable,
 	}
 }
 
@@ -142,54 +111,46 @@ func (b *StringFilterBuilder[P]) IsNull() P {
 	if b.nullable {
 		return b.predicates.IsNil()
 	}
-	// Non-nullable field - return predicate that never matches
-	// For strings: Eq("") means "field equals empty string", which is always false for required fields
-	return b.predicates.Eq("")
+	// Non-nullable field - return mathematically impossible predicate
+	// A field cannot both equal AND not equal the same value (always false)
+	return b.combinators.And(b.predicates.Eq(""), b.predicates.Ne(""))
 }
 
 func (b *StringFilterBuilder[P]) IsNotNull() P {
 	if b.nullable {
 		return b.predicates.IsNotNil()
 	}
-	// Non-nullable field - return predicate that always matches
-	// For strings: Ne("") means "field not equal empty string", which is always true for required fields
-	return b.predicates.Ne("")
+	// Non-nullable field - return tautology (always true)
+	// A field must either equal OR not equal any given value (always true)
+	return b.combinators.Or(b.predicates.Eq(""), b.predicates.Ne(""))
 }
 
 // BoolPredicates contains all the predicate functions needed for boolean field filtering.
 type BoolPredicates[P any] struct {
-	Eq  func(bool) P
-	Ne  func(bool) P
-	Or  func(...P) P // Used for In/Nin operations
-	And func(...P) P // Used for Nin operations
+	Eq func(bool) P
+	Ne func(bool) P
 }
 
 // BoolFilterBuilder implements FieldFilterBuilder for boolean fields.
 // Most comparison and string operations are not meaningful for booleans,
 // so they default to simple equality checks or no-ops.
 type BoolFilterBuilder[P any] struct {
-	predicates BoolPredicates[P]
+	predicates  BoolPredicates[P]
+	combinators Combinators[P]
 }
 
-// NewBoolFilter creates a filter builder for a boolean field.
-// Boolean fields in databases are typically non-nullable with defaults.
-// The alwaysTrue and alwaysFalse predicates are derived automatically:
-//   - alwaysTrue: Or(Eq(true), Eq(false)) - matches both possible values
-//   - alwaysFalse: And(Eq(true), Eq(false)) - impossible condition
+// newBoolFilterWithCombinators creates a filter builder for a boolean field with combinators injected.
+// This is called by BuildFilterMap after receiving the Combinators.
 //
-// Example for Ent:
-//
-//	builder := NewBoolFilter(
-//	    BoolPredicates[predicate.User]{
-//	        Eq:  user.IsActiveEQ,
-//	        Ne:  user.IsActiveNEQ,
-//	        Or:  user.Or,
-//	        And: user.And,
-//	    },
-//	)
-func NewBoolFilter[P any](predicates BoolPredicates[P]) FieldFilterBuilder[P] {
+// The combinators are used to construct mathematically accurate "always true" and
+// "always false" predicates for operations like In/Nin and IsNull/IsNotNull.
+func newBoolFilterWithCombinators[P any](
+	predicates BoolPredicates[P],
+	combinators Combinators[P],
+) FieldFilterBuilder[P] {
 	return &BoolFilterBuilder[P]{
-		predicates: predicates,
+		predicates:  predicates,
+		combinators: combinators,
 	}
 }
 
@@ -221,7 +182,7 @@ func (b *BoolFilterBuilder[P]) Lte(value any) P {
 func (b *BoolFilterBuilder[P]) In(values []any) P {
 	if len(values) == 0 {
 		// No values to match - always false
-		return b.predicates.And(b.predicates.Eq(true), b.predicates.Eq(false))
+		return b.combinators.And(b.predicates.Eq(true), b.predicates.Eq(false))
 	}
 
 	hasTrue, hasFalse := false, false
@@ -235,7 +196,7 @@ func (b *BoolFilterBuilder[P]) In(values []any) P {
 
 	if hasTrue && hasFalse {
 		// Both values included - always matches
-		return b.predicates.Or(b.predicates.Eq(true), b.predicates.Eq(false))
+		return b.combinators.Or(b.predicates.Eq(true), b.predicates.Eq(false))
 	} else if hasTrue {
 		return b.predicates.Eq(true)
 	} else {
@@ -246,7 +207,7 @@ func (b *BoolFilterBuilder[P]) In(values []any) P {
 func (b *BoolFilterBuilder[P]) Nin(values []any) P {
 	if len(values) == 0 {
 		// No values to exclude - always true
-		return b.predicates.Or(b.predicates.Eq(true), b.predicates.Eq(false))
+		return b.combinators.Or(b.predicates.Eq(true), b.predicates.Eq(false))
 	}
 
 	hasTrue, hasFalse := false, false
@@ -260,7 +221,7 @@ func (b *BoolFilterBuilder[P]) Nin(values []any) P {
 
 	if hasTrue && hasFalse {
 		// Both values excluded - never matches
-		return b.predicates.And(b.predicates.Eq(true), b.predicates.Eq(false))
+		return b.combinators.And(b.predicates.Eq(true), b.predicates.Eq(false))
 	} else if hasTrue {
 		return b.predicates.Eq(false)
 	} else {
@@ -270,25 +231,25 @@ func (b *BoolFilterBuilder[P]) Nin(values []any) P {
 
 // String operations aren't applicable to booleans - return always-true predicate
 func (b *BoolFilterBuilder[P]) Contains(value string) P {
-	return b.predicates.Or(b.predicates.Eq(true), b.predicates.Eq(false))
+	return b.combinators.Or(b.predicates.Eq(true), b.predicates.Eq(false))
 }
 
 func (b *BoolFilterBuilder[P]) StartsWith(value string) P {
-	return b.predicates.Or(b.predicates.Eq(true), b.predicates.Eq(false))
+	return b.combinators.Or(b.predicates.Eq(true), b.predicates.Eq(false))
 }
 
 func (b *BoolFilterBuilder[P]) EndsWith(value string) P {
-	return b.predicates.Or(b.predicates.Eq(true), b.predicates.Eq(false))
+	return b.combinators.Or(b.predicates.Eq(true), b.predicates.Eq(false))
 }
 
 func (b *BoolFilterBuilder[P]) IsNull() P {
 	// Boolean fields are typically non-nullable - return always-false
-	return b.predicates.And(b.predicates.Eq(true), b.predicates.Eq(false))
+	return b.combinators.And(b.predicates.Eq(true), b.predicates.Eq(false))
 }
 
 func (b *BoolFilterBuilder[P]) IsNotNull() P {
 	// Boolean fields are typically non-nullable - return always-true
-	return b.predicates.Or(b.predicates.Eq(true), b.predicates.Eq(false))
+	return b.combinators.Or(b.predicates.Eq(true), b.predicates.Eq(false))
 }
 
 // TimePredicates contains all the predicate functions needed for time/timestamp field filtering.
@@ -310,41 +271,25 @@ type TimePredicates[P any] struct {
 // TimeFilterBuilder implements FieldFilterBuilder for time/timestamp fields.
 // It handles parsing time values from strings and time.Time objects.
 type TimeFilterBuilder[P any] struct {
-	predicates TimePredicates[P]
-	nullable   bool
+	predicates  TimePredicates[P]
+	combinators Combinators[P]
+	nullable    bool
 }
 
-// NewTimeFilter creates a filter builder for a non-nullable time/timestamp field.
-// The alwaysTrue and alwaysFalse predicates are derived automatically:
-//   - alwaysTrue: Gte(zeroTime) - all times are >= the zero time
-//   - alwaysFalse: Lt(zeroTime) - no times are < the zero time
+// newTimeFilterWithCombinators creates a filter builder for a time field with combinators injected.
+// This is called by BuildFilterMap after receiving the Combinators.
 //
-// Example for Ent:
-//
-//	builder := NewTimeFilter(
-//	    TimePredicates[predicate.User]{
-//	        Eq:  user.CreatedAtEQ,
-//	        Ne:  user.CreatedAtNEQ,
-//	        Gt:  user.CreatedAtGT,
-//	        Gte: user.CreatedAtGTE,
-//	        Lt:  user.CreatedAtLT,
-//	        Lte: user.CreatedAtLTE,
-//	        In:  user.CreatedAtIn,
-//	        Nin: user.CreatedAtNotIn,
-//	    },
-//	)
-func NewTimeFilter[P any](predicates TimePredicates[P]) FieldFilterBuilder[P] {
+// The combinators are used to construct mathematically accurate "always true" and
+// "always false" predicates for IsNull/IsNotNull on non-nullable fields.
+func newTimeFilterWithCombinators[P any](
+	predicates TimePredicates[P],
+	combinators Combinators[P],
+	nullable bool,
+) FieldFilterBuilder[P] {
 	return &TimeFilterBuilder[P]{
-		predicates: predicates,
-		nullable:   false,
-	}
-}
-
-// NewNullableTimeFilter creates a filter builder for a nullable time field.
-func NewNullableTimeFilter[P any](predicates TimePredicates[P]) FieldFilterBuilder[P] {
-	return &TimeFilterBuilder[P]{
-		predicates: predicates,
-		nullable:   true,
+		predicates:  predicates,
+		combinators: combinators,
+		nullable:    nullable,
 	}
 }
 
@@ -434,16 +379,18 @@ func (b *TimeFilterBuilder[P]) IsNull() P {
 	if b.nullable {
 		return b.predicates.IsNil()
 	}
-	// Non-nullable field - return always-false
-	// All times are >= zero time, so no times are < zero time
-	return b.predicates.Lt(time.Time{})
+	// Non-nullable field - return mathematically impossible predicate
+	// A field cannot both equal AND not equal the same value (always false)
+	zeroTime := time.Time{}
+	return b.combinators.And(b.predicates.Eq(zeroTime), b.predicates.Ne(zeroTime))
 }
 
 func (b *TimeFilterBuilder[P]) IsNotNull() P {
 	if b.nullable {
 		return b.predicates.IsNotNil()
 	}
-	// Non-nullable field - return always-true
-	// All times are >= zero time
-	return b.predicates.Gte(time.Time{})
+	// Non-nullable field - return tautology (always true)
+	// A field must either equal OR not equal any given value (always true)
+	zeroTime := time.Time{}
+	return b.combinators.Or(b.predicates.Eq(zeroTime), b.predicates.Ne(zeroTime))
 }
