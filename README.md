@@ -62,7 +62,7 @@ func ListUsers(ctx context.Context, client *ent.Client, limit, offset int) ([]*e
 
 ### 📖 `pagination` - Browse your data catalog
 
-Dewey helps you navigate through large result sets with offset/limit pagination.
+The pagination package helps you navigate through large result sets with offset/limit pagination.
 
 ```go
 cfg := pagination.Config[*ent.UserQuery]{
@@ -84,7 +84,7 @@ query = pagination.Apply(query, cfg, 25, 0) // First page, 25 items
 
 ### 🗂️ `sort` - Organize by any criteria
 
-Like the Dewey Decimal System organizes books, sort organizes your query results.
+The sort package orders your query results.
 
 ```go
 // Define which fields can be sorted (JSON name -> DB column)
@@ -130,7 +130,7 @@ query = sort.Apply(query, cfg, fields, EntOrderBuilder{}, "email", "desc")
 
 ### 🔍 `filter` - Find exactly what you need
 
-Dewey's card catalog helps you search through your data efficiently. The filter package provides three approaches:
+The filter package provides three approaches to filtering records:
 
 #### **1. Structured Filters** (NEW) - Django/React-Admin style filtering
 
@@ -283,15 +283,36 @@ var (
         Or:  user.Or,
         And: user.And,
     }
+
+    // Field-specific filter builders for structured filtering
+    userFilterBuilders = filter.BuildFilterMap(
+        // String field with all operators
+        filter.StringField("email", filter.StringPredicates[predicate.User]{
+            Eq:         user.EmailEQ,
+            Ne:         user.EmailNEQ,
+            Contains:   user.EmailContainsFold,
+            StartsWith: user.EmailHasPrefix,
+            EndsWith:   user.EmailHasSuffix,
+            // ... other operators as needed
+        }),
+
+        // Boolean field
+        filter.BoolField("is_active", filter.BoolPredicates[predicate.User]{
+            Eq: user.IsActiveEQ,
+            Ne: user.IsActiveNEQ,
+        }),
+
+        // Add more fields as needed...
+    )
 )
 
 type ListUsersInput struct {
-    Search  string   `query:"search"`
-    SortBy  string   `query:"sort_by"`
-    SortDir string   `query:"sort_dir"`
-    Limit   int      `query:"limit" default:"25"`
-    Offset  int      `query:"offset" default:"0"`
-    IDs     []string `query:"id"` // For getMany support
+    IDs     []string `query:"id" doc:"Filter by specific IDs"`
+    Search  string   `query:"search" doc:"Search across fields"`
+    Filters string   `query:"filters" doc:"JSON-encoded FilterGroup"`
+    Sorts   string   `query:"sorts" doc:"JSON array of sort criteria"`
+    Limit   int      `query:"limit" minimum:"1" maximum:"100" default:"25"`
+    Offset  int      `query:"offset" minimum:"0" default:"0"`
 }
 
 func ListUsers(ctx context.Context, client *ent.Client, input *ListUsersInput) ([]User, int, error) {
@@ -307,11 +328,26 @@ func ListUsers(ctx context.Context, client *ent.Client, input *ListUsersInput) (
         query = filter.ApplyIDs(query, userFilterCfg, userPredicates, ids)
     }
 
+    // Apply structured filters
+    if input.Filters != "" {
+        var filterGroup filter.FilterGroup
+        if err := json.Unmarshal([]byte(input.Filters), &filterGroup); err != nil {
+            return nil, 0, err
+        }
+        query = filter.ApplyStructuredFilters(query, userFilterCfg, filterGroup, userFilterBuilders, userPredicates)
+    }
+
     // Apply search
     query = filter.ApplySearch(query, userFilterCfg, userSearchFields, userPredicates, input.Search)
 
     // Apply sorting
-    query = sort.Apply(query, userSortCfg, userSortFields, EntOrderBuilder{}, input.SortBy, input.SortDir)
+    if input.Sorts != "" {
+        var sortCriteria []sort.Criteria
+        if err := json.Unmarshal([]byte(input.Sorts), &sortCriteria); err != nil {
+            return nil, 0, err
+        }
+        query = sort.ApplyMultiple(query, userSortCfg, userSortFields, EntOrderBuilder{}, sortCriteria)
+    }
 
     // Get total (before pagination)
     total, err := query.Count(ctx)
@@ -376,15 +412,7 @@ For raw SQL, you'd typically build queries manually. The utilities are less appl
 
 ### Why "Dewey"?
 
-The Dewey Decimal Classification system revolutionized how libraries organize information. Similarly, Dewey the library helps you organize and access your API data efficiently. Plus, it's short, memorable, and fun! 📚
-
-### Why no reflection?
-
-Reflection makes code hard to debug and understand. Explicit adapter functions are:
-- Easier to debug (just set a breakpoint)
-- Easier to understand (see exactly what's happening)
-- Type-safe (compiler catches errors)
-- More idiomatic Go
+The Dewey Decimal Classification system revolutionized how libraries organize information. Dewey the library helps you organize and access your records in an efficient and standardized way. 📚
 
 ### Why `any` for order options?
 
@@ -402,22 +430,9 @@ Using `any` allows the OrderBuilder to return whatever type your ORM expects, an
 - Test utilities independently
 - Compose them in any order
 
-## Contributing
-
-Dewey is intentionally minimal. Before adding features, ask:
-1. Does this work with *all* ORMs, or just one?
-2. Can users implement this themselves in 5 lines?
-3. Does this violate the "zero dependencies" principle?
-
-If yes to any, it probably doesn't belong in Dewey's catalog.
-
 ## License
 
 MIT
-
-## Acknowledgments
-
-Built for the [Strawberry](https://github.com/tone-labs/strawberry) project - a modern Go + React admin framework. Dewey handles the data organization while Strawberry handles the UI.
 
 ---
 
