@@ -1,4 +1,4 @@
-# Dewey
+# 📚 Dewey
 
 **Database-agnostic query utilities for Go REST APIs**
 
@@ -59,7 +59,7 @@ func ListUsers(ctx context.Context, client *ent.Client, limit, offset int) ([]*e
 
 ## Packages
 
-### `pagination`
+### 📖 `pagination`
 
 Offset/limit pagination for query result sets.
 
@@ -81,7 +81,7 @@ query = pagination.Apply(query, cfg, 25, 0) // First page, 25 items
 - `Page[T]` helper type with metadata (total, hasNext, hasPrev, pageNumber)
 - Zero or negative values are ignored (allows optional pagination)
 
-### `sort`
+### 🗂️ `sort`
 
 Multi-field sorting with configurable order directions.
 
@@ -127,7 +127,7 @@ query = sort.Apply(query, cfg, fields, EntOrderBuilder{}, "email", "desc")
 - Multi-field sorting with `ApplyMultiple`
 - Unknown fields are safely ignored
 
-### `filter`
+### 🔍 `filter`
 
 Flexible filtering with multiple strategies for different use cases:
 
