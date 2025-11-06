@@ -27,10 +27,18 @@ import "github.com/tone-labs/dewey/filter"
 
 ### 2. Define Filter Builders for Your Model
 
-Use the declarative API to create a filter builder map:
+Use the declarative API to create a filter builder map. You need to provide the Combinators which contain the Or/And functions used for creating accurate impossible predicates:
 
 ```go
+// Define the Combinators
+combinators := filter.Combinators[predicate.User]{
+    Or:  user.Or,
+    And: user.And,
+}
+
 var userFilterBuilders = filter.BuildFilterMap(
+    combinators, // Pass combinators as first argument
+
     // Non-nullable string field
     filter.StringField("email", filter.StringPredicates[predicate.User]{
         Eq:         user.EmailEQ,
@@ -65,10 +73,8 @@ var userFilterBuilders = filter.BuildFilterMap(
 
     // Boolean field
     filter.BoolField("is_active", filter.BoolPredicates[predicate.User]{
-        Eq:  user.IsActiveEQ,
-        Ne:  user.IsActiveNEQ,
-        Or:  user.Or,
-        And: user.And,
+        Eq: user.IsActiveEQ,
+        Ne: user.IsActiveNEQ,
     }),
 
     // Time/timestamp field
@@ -108,7 +114,7 @@ query = filter.ApplyStructuredFilters(
 
 Supports: Eq, Ne, Gt, Gte, Lt, Lte, In, Nin, Contains, StartsWith, EndsWith, IsNull, IsNotNull
 
-For non-nullable fields, `IsNull`/`IsNotNull` automatically derive "always false"/"always true" predicates internally using `Eq("")`/`Ne("")`.
+For non-nullable fields, `IsNull` returns a mathematically impossible predicate (`And(Eq(value), Ne(value))` - always false), and `IsNotNull` returns a tautology (`Or(Eq(value), Ne(value))` - always true). This provides accurate semantics regardless of field content.
 
 ### Boolean Fields
 
@@ -116,7 +122,7 @@ For non-nullable fields, `IsNull`/`IsNotNull` automatically derive "always false
 
 Supports: Eq, Ne, In, Nin (comparison and string operators are no-ops)
 
-The library automatically derives "always true" and "always false" predicates using `Or(Eq(true), Eq(false))` and `And(Eq(true), Eq(false))`.
+The library automatically derives "always true" and "always false" predicates using `Or(Eq(true), Eq(false))` (tautology - matches any boolean value) and `And(Eq(true), Eq(false))` (impossible condition - can't be both).
 
 ### Time/Timestamp Fields
 
@@ -125,7 +131,7 @@ The library automatically derives "always true" and "always false" predicates us
 
 Supports: Eq, Ne, Gt, Gte, Lt, Lte, In, Nin, IsNull, IsNotNull
 
-For non-nullable fields, `IsNull`/`IsNotNull` automatically derive predicates using `Lt(zeroTime)`/`Gte(zeroTime)`.
+For non-nullable fields, `IsNull` returns a mathematically impossible predicate (`And(Eq(zeroTime), Ne(zeroTime))` - always false), and `IsNotNull` returns a tautology (`Or(Eq(zeroTime), Ne(zeroTime))` - always true).
 
 Handles automatic parsing of ISO dates (YYYY-MM-DD) and RFC3339 timestamps.
 

@@ -13,6 +13,23 @@ type Config[Q any, P any] struct {
 	Where func(Q, P) Q
 }
 
+// Combinators provides functions for combining predicates with AND/OR logic.
+// These are used by BuildFilterMap to construct accurate "always true" and "always false" predicates.
+//
+// Example for Ent:
+//
+//	combinators := filter.Combinators[predicate.User]{
+//	    Or:  user.Or,
+//	    And: user.And,
+//	}
+type Combinators[P any] struct {
+	// Or combines predicates with OR logic
+	Or func(predicates ...P) P
+
+	// And combines predicates with AND logic
+	And func(predicates ...P) P
+}
+
 // PredicateBuilder builds predicates for combining and ID filtering.
 // Users implement this to adapt their ORM's predicate system.
 //

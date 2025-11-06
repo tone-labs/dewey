@@ -1,33 +1,45 @@
 package filter
 
 // FieldBuilder represents a configured filter builder for a single field.
-// This is used to build up the filter builder map declaratively.
+// It contains a factory function that constructs the actual builder with combinators injected.
 type FieldBuilder[P any] struct {
-	Name    string
-	Builder FieldFilterBuilder[P]
+	Name   string
+	Create func(combinators Combinators[P]) FieldFilterBuilder[P]
 }
 
 // BuildFilterMap constructs a map of field names to filter builders from a list of field configurations.
 // This provides a declarative way to register all filters for a model.
 //
+// The Combinators provide the Or/And functions needed to construct mathematically accurate
+// "always true" and "always false" predicates for IsNull/IsNotNull on non-nullable fields.
+//
 // Example usage:
 //
+//	combinators := Combinators[predicate.User]{
+//	    Or:  user.Or,
+//	    And: user.And,
+//	}
+//
 //	filterBuilders := BuildFilterMap(
-//	    StringField("email", user.EmailEQ, user.EmailNEQ, ...),
-//	    NullableStringField("first_name", user.FirstNameEQ, ...),
-//	    BoolField("is_active", user.IsActiveEQ, user.IsActiveNEQ, ...),
-//	    TimeField("created_at", user.CreatedAtEQ, user.CreatedAtNEQ, ...),
+//	    combinators,
+//	    StringField("email", StringPredicates{...}),
+//	    NullableStringField("first_name", StringPredicates{...}),
+//	    BoolField("is_active", BoolPredicates{...}),
+//	    TimeField("created_at", TimePredicates{...}),
 //	)
-func BuildFilterMap[P any](fields ...FieldBuilder[P]) map[string]FieldFilterBuilder[P] {
+func BuildFilterMap[P any](
+	combinators Combinators[P],
+	fields ...FieldBuilder[P],
+) map[string]FieldFilterBuilder[P] {
 	result := make(map[string]FieldFilterBuilder[P], len(fields))
 	for _, field := range fields {
-		result[field.Name] = field.Builder
+		result[field.Name] = field.Create(combinators)
 	}
 	return result
 }
 
 // StringField creates a FieldBuilder for a non-nullable string field.
-// This is a convenience function that wraps NewStringFilter.
+// The builder will be constructed with combinators injected by BuildFilterMap.
 //
 // Example:
 //
@@ -49,8 +61,10 @@ func StringField[P any](
 	predicates StringPredicates[P],
 ) FieldBuilder[P] {
 	return FieldBuilder[P]{
-		Name:    name,
-		Builder: NewStringFilter(predicates),
+		Name: name,
+		Create: func(combinators Combinators[P]) FieldFilterBuilder[P] {
+			return newStringFilterWithCombinators(predicates, combinators, false)
+		},
 	}
 }
 
@@ -70,28 +84,31 @@ func NullableStringField[P any](
 	predicates StringPredicates[P],
 ) FieldBuilder[P] {
 	return FieldBuilder[P]{
-		Name:    name,
-		Builder: NewNullableStringFilter(predicates),
+		Name: name,
+		Create: func(combinators Combinators[P]) FieldFilterBuilder[P] {
+			return newStringFilterWithCombinators(predicates, combinators, true)
+		},
 	}
 }
 
 // BoolField creates a FieldBuilder for a boolean field.
+// The builder will be constructed with combinators injected by BuildFilterMap.
 //
 // Example:
 //
 //	BoolField("is_active", BoolPredicates[predicate.User]{
 //	    Eq:  user.IsActiveEQ,
 //	    Ne:  user.IsActiveNEQ,
-//	    Or:  user.Or,
-//	    And: user.And,
 //	})
 func BoolField[P any](
 	name string,
 	predicates BoolPredicates[P],
 ) FieldBuilder[P] {
 	return FieldBuilder[P]{
-		Name:    name,
-		Builder: NewBoolFilter(predicates),
+		Name: name,
+		Create: func(combinators Combinators[P]) FieldFilterBuilder[P] {
+			return newBoolFilterWithCombinators(predicates, combinators)
+		},
 	}
 }
 
@@ -114,8 +131,10 @@ func TimeField[P any](
 	predicates TimePredicates[P],
 ) FieldBuilder[P] {
 	return FieldBuilder[P]{
-		Name:    name,
-		Builder: NewTimeFilter(predicates),
+		Name: name,
+		Create: func(combinators Combinators[P]) FieldFilterBuilder[P] {
+			return newTimeFilterWithCombinators(predicates, combinators, false)
+		},
 	}
 }
 
@@ -125,7 +144,9 @@ func NullableTimeField[P any](
 	predicates TimePredicates[P],
 ) FieldBuilder[P] {
 	return FieldBuilder[P]{
-		Name:    name,
-		Builder: NewNullableTimeFilter(predicates),
+		Name: name,
+		Create: func(combinators Combinators[P]) FieldFilterBuilder[P] {
+			return newTimeFilterWithCombinators(predicates, combinators, true)
+		},
 	}
 }
