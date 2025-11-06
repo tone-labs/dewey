@@ -1,16 +1,15 @@
-# 📚 Dewey - Your REST API Librarian
+# Dewey
 
 **Database-agnostic query utilities for Go REST APIs**
 
-Dewey is a lightweight, zero-dependency library that helps you organize, filter, sort, and paginate your REST API queries. Just like a librarian helps you find the right books, Dewey helps you find the right data.
+Dewey is a lightweight, zero-dependency library that provides composable utilities for filtering, sorting, and paginating REST API queries.
 
-## Why Dewey?
+## Features
 
-Named after the Dewey Decimal System, this library brings the same organizational principles to your REST APIs:
-- **Categorize** - Filter data with multi-token search
-- **Sort** - Order results by any field
-- **Paginate** - Browse through results systematically
-- **No lock-in** - Works with any ORM or query builder
+- **Filter** - Structured filters, full-text search, and custom predicates
+- **Sort** - Multi-field ordering with type-safe field mappings
+- **Paginate** - Offset/limit pagination with metadata helpers
+- **ORM-agnostic** - Works with any database layer (Ent, GORM, sqlc, raw SQL)
 
 ## Installation
 
@@ -60,9 +59,9 @@ func ListUsers(ctx context.Context, client *ent.Client, limit, offset int) ([]*e
 
 ## Packages
 
-### 📖 `pagination` - Browse your data catalog
+### `pagination`
 
-The pagination package helps you navigate through large result sets with offset/limit pagination.
+Offset/limit pagination for query result sets.
 
 ```go
 cfg := pagination.Config[*ent.UserQuery]{
@@ -82,9 +81,9 @@ query = pagination.Apply(query, cfg, 25, 0) // First page, 25 items
 - `Page[T]` helper type with metadata (total, hasNext, hasPrev, pageNumber)
 - Zero or negative values are ignored (allows optional pagination)
 
-### 🗂️ `sort` - Organize by any criteria
+### `sort`
 
-The sort package orders your query results.
+Multi-field sorting with configurable order directions.
 
 ```go
 // Define which fields can be sorted (JSON name -> DB column)
@@ -128,16 +127,18 @@ query = sort.Apply(query, cfg, fields, EntOrderBuilder{}, "email", "desc")
 - Multi-field sorting with `ApplyMultiple`
 - Unknown fields are safely ignored
 
-### 🔍 `filter` - Find exactly what you need
+### `filter`
 
-The filter package provides three approaches to filtering records:
+Flexible filtering with multiple strategies for different use cases:
 
-#### **1. Structured Filters** (NEW) - Django/React-Admin style filtering
+#### **1. Structured Filters**
 
-Perfect for building UI-driven filters with specific operators.
+Field-specific filtering with operator support, ideal for UI-driven filter interfaces.
+
+**Note:** You can manually define filter builders (shown below) or use the generic `filter.StringField()`, `filter.BoolField()`, `filter.TimeField()` helpers to eliminate boilerplate. See the [Complete Example](#complete-example) for the recommended approach.
 
 ```go
-// Define field filter builders for each filterable field
+// Manual approach: Define field filter builders for each filterable field
 type UserEmailFilterBuilder struct{}
 
 func (b UserEmailFilterBuilder) Eq(value any) predicate.User {
@@ -180,9 +181,9 @@ query = filter.ApplyStructuredFilters(query, cfg, group, fieldBuilders, predicat
 - `"and"` - All filters must match (default)
 - `"or"` - Any filter can match
 
-#### **2. Full-Text Search** - Quick keyword search
+#### **2. Full-Text Search**
 
-Great for global search boxes that search across multiple fields.
+Multi-field keyword search with tokenization and case-insensitive matching.
 
 ```go
 // Define searchable fields
@@ -284,8 +285,14 @@ var (
         And: user.And,
     }
 
+    userCombinators = filter.Combinators[predicate.User]{
+        Or:  user.Or,
+        And: user.And,
+    }
+
     // Field-specific filter builders for structured filtering
     userFilterBuilders = filter.BuildFilterMap(
+        userCombinators,
         // String field with all operators
         filter.StringField("email", filter.StringPredicates[predicate.User]{
             Eq:         user.EmailEQ,
@@ -410,9 +417,9 @@ For raw SQL, you'd typically build queries manually. The utilities are less appl
 
 ## Design Decisions
 
-### Why "Dewey"?
+### Naming
 
-The Dewey Decimal Classification system revolutionized how libraries organize information. Dewey the library helps you organize and access your records in an efficient and standardized way. 📚
+Named after the Dewey Decimal Classification system for organizing information.
 
 ### Why `any` for order options?
 
@@ -433,7 +440,3 @@ Using `any` allows the OrderBuilder to return whatever type your ORM expects, an
 ## License
 
 MIT
-
----
-
-**"The librarian is the heart of the school."** - And Dewey is the heart of your REST API. 📚✨
